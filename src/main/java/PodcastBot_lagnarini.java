@@ -11,26 +11,47 @@ public class PodcastBot_lagnarini implements LongPollingSingleThreadUpdateConsum
         this.telegramClient = new OkHttpTelegramClient(botToken);
     }
 
-        @Override
-        public void consume(Update update) {
-            // fare switch case e per ogni caso chiamo un metodo esterno
-            if (update.hasMessage() && update.getMessage().hasText()) {
-                String message_text = update.getMessage().getText();
-                long chat_id = update.getMessage().getChatId();
-                if(update.getMessage().getText().equals("/pizza")){
-                    message_text="Pizzeria mamma mia come posso essere d'aiuto";
-                }
-                SendMessage message = SendMessage
-                        .builder()
-                        .chatId(chat_id)
-                        .text(message_text)
-                        .build();
-                try{
-                    telegramClient.execute(message);
-                } catch (TelegramApiException e) {
-                    e.printStackTrace();
-                }
+    @Override
+    public void consume(Update update) {
+        if (!update.hasMessage() || !update.getMessage().hasText()) return;
+
+        String text = update.getMessage().getText();
+        long chatId = update.getMessage().getChatId();
+
+        if (text.equals("/start")) {
+            sendText(chatId,
+                    "Ciao!\n" +
+                            "Usa /search per cercare un podcast.\n" +
+                            "Esempio: /search tecnologia");
+        }
+        else if (text.startsWith("/search")) {
+
+            String[] parts = text.split(" ", 2);
+
+            if (parts.length < 2) {
+                sendText(chatId, "Devi scrivere: /search argomento");
+                return;
             }
+
+            String query = parts[1];
+            sendText(chatId, "Hai cercato: " + query);
+        }
+
+        else if (text.equals("/next")) {
+            sendText(chatId, "Mostro il prossimo podcast");
         }
     }
+    private void sendText(long chatId, String text) {
+        SendMessage message = SendMessage.builder()
+                .chatId(chatId)
+                .text(text)
+                .build();
+        try {
+            telegramClient.execute(message);
+        } catch (TelegramApiException e) {
+            e.printStackTrace();
+        }
+    }
+
+}
 

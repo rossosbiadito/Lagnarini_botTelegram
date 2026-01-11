@@ -9,10 +9,10 @@ public class Main {
                      new TelegramBotsLongPollingApplication()) {
 
             botsApplication.registerBot(botToken, new PodcastBot_lagnarini(botToken));
-            System.out.println("Bot che si accende");
+            System.out.println("Bot avviato");
 
             // Mantiene vivo il thread principale
-            Thread.currentThread().join();
+           Thread.currentThread().join();
 
         } catch (Exception e) {
             e.printStackTrace();
