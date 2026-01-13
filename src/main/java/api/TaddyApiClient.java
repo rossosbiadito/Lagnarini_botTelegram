@@ -31,60 +31,54 @@ public class TaddyApiClient {
             JsonObject root = JsonParser.parseString(jsonResponse).getAsJsonObject();
 
             if (root.has("errors")) {
-                System.err.println("❌ ERRORI API TADDY: " + root.getAsJsonArray("errors").toString());
+                System.err.println("ERRORI API TADDY: " + root.getAsJsonArray("errors").toString());
                 return new ArrayList<>();
             }
-
-            if (!root.has("data") || root.get("data").isJsonNull()) return new ArrayList<>();
 
             JsonObject data = root.getAsJsonObject("data");
+            JsonElement seriesElement = data.get("getPodcastSeries");
+            JsonElement searchElement = data.get("searchPodcasts");
 
-            // ✅ Con getPodcastSeries, il risultato è un singolo oggetto o nullo
-            if (data.get("getPodcastSeries").isJsonNull()) {
-                System.out.println("Nessun podcast trovato con questo nome.");
-                return new ArrayList<>();
-            }
-
-            JsonObject podcastObj = data.getAsJsonObject("getPodcastSeries");
             List<podcast> results = new ArrayList<>();
 
-            podcast p = new podcast();
-            p.setUuid(podcastObj.has("uuid") ? podcastObj.get("uuid").getAsString() : "");
-            p.setName(podcastObj.has("name") ? podcastObj.get("name").getAsString() : "Sconosciuto");
-            p.setDescription(podcastObj.has("description") ? podcastObj.get("description").getAsString() : "");
+            if (seriesElement != null && !seriesElement.isJsonNull()) {
+                results.add(parsePodcastFromObject(seriesElement.getAsJsonObject()));
+            } else if (searchElement != null && !searchElement.isJsonNull()) {
+                JsonArray searchArray = searchElement.getAsJsonArray();
+                for (JsonElement el : searchArray) {
+                    results.add(parsePodcastFromObject(el.getAsJsonObject()));
+                }
+            }
 
-            results.add(p);
             return results;
 
         } catch (Exception e) {
-            System.err.println("❌ Errore parsing: " + e.getMessage());
+            System.err.println("Errore parsing JSON: " + e.getMessage());
             return new ArrayList<>();
         }
     }
 
     public String searchPodcastRaw(String nameQuery) {
+        String queryType = nameQuery.contains(" ") ? "getPodcastSeries(name: \"" : "searchPodcasts(term: \"";
+        String graphQuery = "{ " + queryType + nameQuery.replace("\"", "") + "\") { uuid name description imageUrl } }";
+        return executeQuery(graphQuery);
+    }
+
+    private String executeQuery(String query) {
         try {
             URL url = new URL("https://api.taddy.org");
             HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-
             conn.setRequestMethod("POST");
             conn.setRequestProperty("Content-Type", "application/json");
             conn.setRequestProperty("X-API-KEY", apiKey);
             conn.setRequestProperty("X-USER-ID", userId);
             conn.setDoOutput(true);
 
-            // ✅ QUERY BASATA SULLA DOC CHE HAI TROVATO
-            // Usiamo getPodcastSeries(name: "...")
-            String query = "{ getPodcastSeries(name: \"" + nameQuery.replace("\"", "") + "\") { uuid name description } }";
-
             JsonObject jsonBody = new JsonObject();
             jsonBody.addProperty("query", query);
 
-            String finalJson = jsonBody.toString();
-            System.out.println("DEBUG - Invio query: " + finalJson);
-
             try (OutputStream os = conn.getOutputStream()) {
-                os.write(finalJson.getBytes(StandardCharsets.UTF_8));
+                os.write(jsonBody.toString().getBytes(StandardCharsets.UTF_8));
             }
 
             int responseCode = conn.getResponseCode();
@@ -96,12 +90,19 @@ public class TaddyApiClient {
             String line;
             while ((line = br.readLine()) != null) response.append(line);
             br.close();
-
             return response.toString();
-
         } catch (Exception e) {
             e.printStackTrace();
             return null;
         }
+    }
+
+    private podcast parsePodcastFromObject(JsonObject obj) {
+        podcast p = new podcast();
+        p.setUuid(obj.has("uuid") && !obj.get("uuid").isJsonNull() ? obj.get("uuid").getAsString() : "");
+        p.setName(obj.has("name") && !obj.get("name").isJsonNull() ? obj.get("name").getAsString() : "Sconosciuto");
+        p.setDescription(obj.has("description") && !obj.get("description").isJsonNull() ? obj.get("description").getAsString() : "");
+        p.setImageUrl(obj.has("imageUrl") && !obj.get("imageUrl").isJsonNull() ? obj.get("imageUrl").getAsString() : "");
+        return p;
     }
 }

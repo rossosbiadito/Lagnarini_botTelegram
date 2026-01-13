@@ -1,66 +1,108 @@
 package database;
 
 import java.sql.*;
-import api.podcast;
 
 public class DatabaseManager {
-    private Connection connection;
+    private static final String URL = "jdbc:sqlite:podcasts.db";
 
     public DatabaseManager() {
-        try {
-            String url = "jdbc:sqlite:data/podcast_bot.db";
-            connection = DriverManager.getConnection(url);
-            setupDatabase();
-        } catch (SQLException e) {
-            System.err.println("Errore connessione DB: " + e.getMessage());
-        }
-    }
-
-    private void setupDatabase() throws SQLException {
-        try (Statement stmt = connection.createStatement()) {
-            stmt.execute("CREATE TABLE IF NOT EXISTS users (" +
-                    "chat_id INTEGER PRIMARY KEY, " +
-                    "username TEXT, " +
-                    "last_search TEXT)");
-
-            stmt.execute("CREATE TABLE IF NOT EXISTS saved_podcasts (" +
-                    "user_id INTEGER, " +
-                    "podcast_uuid TEXT, " +
-                    "podcast_name TEXT, " +
-                    "saved_at DATETIME DEFAULT CURRENT_TIMESTAMP, " +
-                    "PRIMARY KEY (user_id, podcast_uuid))");
-
-            stmt.execute("CREATE TABLE IF NOT EXISTS stats (" +
-                    "user_id INTEGER PRIMARY KEY, " +
-                    "previews_heard INTEGER DEFAULT 0, " +
-                    "total_seconds INTEGER DEFAULT 0)");
-        }
-    }
-
-    public void addFavorite(long chatId, podcast p) {
-        String sql = "INSERT OR IGNORE INTO saved_podcasts(user_id, podcast_uuid, podcast_name) VALUES(?,?,?)";
-        try (PreparedStatement pstmt = connection.prepareStatement(sql)) {
-            pstmt.setLong(1, chatId);
-            pstmt.setString(2, p.getUuid());
-            pstmt.setString(3, p.getName());
-            pstmt.executeUpdate();
+        try (Connection conn = DriverManager.getConnection(URL)) {
+            Statement stmt = conn.createStatement();
+            stmt.execute("CREATE TABLE IF NOT EXISTS users (chat_id INTEGER PRIMARY KEY, username TEXT)");
+            stmt.execute("CREATE TABLE IF NOT EXISTS favorites (" +
+                    "id INTEGER PRIMARY KEY AUTOINCREMENT, " +
+                    "chat_id INTEGER, " +
+                    "uuid TEXT, " +
+                    "name TEXT, " +
+                    "FOREIGN KEY(chat_id) REFERENCES users(chat_id))");
         } catch (SQLException e) {
             e.printStackTrace();
         }
     }
 
-    public void incrementStats(long chatId, int seconds) {
-        String sql = "INSERT INTO stats(user_id, previews_heard, total_seconds) VALUES(?, 1, ?) " +
-                "ON CONFLICT(user_id) DO UPDATE SET " +
-                "previews_heard = previews_heard + 1, " +
-                "total_seconds = total_seconds + ?";
-        try (PreparedStatement pstmt = connection.prepareStatement(sql)) {
+    public void registerUser(long chatId, String username) {
+        String sql = "INSERT OR IGNORE INTO users(chat_id, username) VALUES(?,?)";
+        try (Connection conn = DriverManager.getConnection(URL);
+             PreparedStatement pstmt = conn.prepareStatement(sql)) {
+
             pstmt.setLong(1, chatId);
-            pstmt.setInt(2, seconds);
-            pstmt.setInt(3, seconds);
+            pstmt.setString(2, username);
             pstmt.executeUpdate();
+
         } catch (SQLException e) {
             e.printStackTrace();
+        }
+    }
+
+    public boolean isFavoriteExists(long chatId, String uuid) {
+        String sql = "SELECT 1 FROM favorites WHERE chat_id = ? AND uuid = ?";
+        try (Connection conn = DriverManager.getConnection(URL);
+             PreparedStatement pstmt = conn.prepareStatement(sql)) {
+
+            pstmt.setLong(1, chatId);
+            pstmt.setString(2, uuid);
+            ResultSet rs = pstmt.executeQuery();
+            return rs.next();
+
+        } catch (SQLException e) {
+            e.printStackTrace();
+            return false;
+        }
+    }
+
+    public void addFavorite(long chatId, String uuid, String name) {
+        if (isFavoriteExists(chatId, uuid)) return; // Blocca duplicati
+
+        String sql = "INSERT INTO favorites(chat_id, uuid, name) VALUES(?,?,?)";
+        try (Connection conn = DriverManager.getConnection(URL);
+             PreparedStatement pstmt = conn.prepareStatement(sql)) {
+
+            pstmt.setLong(1, chatId);
+            pstmt.setString(2, uuid);
+            pstmt.setString(3, name);
+            pstmt.executeUpdate();
+
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+    }
+
+    public String getGlobalStats() {
+        String sql = "SELECT name, COUNT(*) as count FROM favorites GROUP BY name ORDER BY count DESC LIMIT 3";
+        StringBuilder sb = new StringBuilder("📊 *Podcast più salvati:* \n");
+        try (Connection conn = DriverManager.getConnection(URL);
+             Statement stmt = conn.createStatement();
+             ResultSet rs = stmt.executeQuery(sql)) {
+
+            boolean data = false;
+            while (rs.next()) {
+                data = true;
+                sb.append("- ").append(rs.getString("name")).append(" (").append(rs.getInt("count")).append(" fan)\n");
+            }
+            return data ? sb.toString() : "Ancora nessun preferito salvato.";
+
+        } catch (SQLException e) {
+            return "Errore statistiche.";
+        }
+    }
+
+    public String getUserFavorites(long chatId) {
+        String sql = "SELECT name FROM favorites WHERE chat_id = ?";
+        StringBuilder sb = new StringBuilder("⭐️ *I tuoi preferiti:* \n");
+        try (Connection conn = DriverManager.getConnection(URL);
+             PreparedStatement pstmt = conn.prepareStatement(sql)) {
+
+            pstmt.setLong(1, chatId);
+            ResultSet rs = pstmt.executeQuery();
+            boolean data = false;
+            while (rs.next()) {
+                data = true;
+                sb.append("- ").append(rs.getString("name")).append("\n");
+            }
+            return data ? sb.toString() : "Non hai ancora salvato nulla.";
+
+        } catch (SQLException e) {
+            return "Errore recupero preferiti.";
         }
     }
 }

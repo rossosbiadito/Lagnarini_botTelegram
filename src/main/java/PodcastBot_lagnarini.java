@@ -1,85 +1,132 @@
+import api.TaddyApiClient;
+import api.podcast;
 import database.DatabaseManager;
-import org.telegram.telegrambots.client.okhttp.OkHttpTelegramClient;
 import org.telegram.telegrambots.longpolling.util.LongPollingSingleThreadUpdateConsumer;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
+import org.telegram.telegrambots.meta.api.methods.send.SendPhoto;
+import org.telegram.telegrambots.meta.api.objects.InputFile;
 import org.telegram.telegrambots.meta.api.objects.Update;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 import org.telegram.telegrambots.meta.generics.TelegramClient;
-import api.TaddyApiClient;
-import api.podcast;
+import org.telegram.telegrambots.client.okhttp.OkHttpTelegramClient;
+
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 public class PodcastBot_lagnarini implements LongPollingSingleThreadUpdateConsumer {
 
-    private TelegramClient telegramClient;
-    private TaddyApiClient apiClient;
-    private List<podcast> currentResults;
-    private int currentIndex = 0;
-    // Dentro PodcastBot_lagnarini
-    private DatabaseManager db;
+    private final TelegramClient telegramClient;
+    private final TaddyApiClient apiClient;
+    private final DatabaseManager dbManager;
+    private final Map<Long, podcast> lastSearchMap = new HashMap<>();
 
-    public PodcastBot_lagnarini(String botToken) {
+    public PodcastBot_lagnarini(String botToken, String taddyApiKey, String taddyUserId) {
         this.telegramClient = new OkHttpTelegramClient(botToken);
-
-        String apiKey = ConfigurationSingleton.getInstance().getProperty("TADDY_API_KEY");
-        String userId = ConfigurationSingleton.getInstance().getProperty("TADDY_USER_ID");
-
-        this.db = new DatabaseManager(); // Inizializza il database
-        this.apiClient = new TaddyApiClient(apiKey, userId);
+        this.dbManager = new DatabaseManager();
+        this.apiClient = new TaddyApiClient(taddyApiKey, taddyUserId);
     }
 
     @Override
     public void consume(Update update) {
         if (!update.hasMessage() || !update.getMessage().hasText()) return;
 
-        String text = update.getMessage().getText();
+        String text = update.getMessage().getText().trim();
         long chatId = update.getMessage().getChatId();
+        String username = update.getMessage().getFrom().getUserName();
 
-        if (text.equals("/start")) {
-            sendText(chatId, "🎙️ *Benvenuto nel Bot Podcast Taddy!*\n\nUsa /search <argomento> per iniziare.");
-        }
-        else if (text.startsWith("/search")) {
-            String[] parts = text.split(" ", 2);
-            if (parts.length < 2) {
-                sendText(chatId, "Devi scrivere: /search <argomento>");
-                return;
-            }
+        if (text.startsWith("/")) {
+            switch (text.split(" ")[0]) {
+                case "/start":
+                    start(chatId, username);
+                    break;
 
-            String query = parts[1];
-            sendText(chatId, "🔍 Sto cercando podcast su: *" + query + "*...");
-            currentResults = apiClient.searchPodcasts(query);
+                case "/search":
+                    search(chatId, text);
+                    break;
 
-            if (currentResults == null || currentResults.isEmpty()) {
-                sendText(chatId, "Nessun podcast trovato per: " + query);
-            } else {
-                currentIndex = 0;
-                sendPodcastPreview(chatId, currentResults.get(currentIndex));
+                case "/save":
+                    save(chatId);
+                    break;
+
+                case "/stats":
+                    sendText(chatId, dbManager.getGlobalStats());
+                    break;
+
+                case "/myfavorites":
+                    sendText(chatId, dbManager.getUserFavorites(chatId));
+                    break;
+
+                default:
+                    sendText(chatId, "Comando non riconosciuto.");
             }
-        }
-        else if (text.equals("/next")) {
-            if (currentResults == null || currentResults.isEmpty()) {
-                sendText(chatId, "Fai prima una ricerca con /search");
-                return;
-            }
-            currentIndex = (currentIndex + 1) % currentResults.size();
-            sendPodcastPreview(chatId, currentResults.get(currentIndex));
         }
     }
 
-    // ✅ SEMPLIFICATO - solo testo
+    private void start(long chatId, String username) {
+        dbManager.registerUser(chatId, username != null ? username : "User");
+        sendText(chatId, "🎙️ *Benvenuto! * \n- Usa `/search <nome>` \n- Usa `/save` per i preferiti \n- Usa `/stats` per le tendenze \n- Usa `/myfavorites` per i tuoi salvati");
+    }
+
+    private void search(long chatId, String text) {
+        String[] parts = text.split(" ", 2);
+        if (parts.length < 2 || parts[1].isBlank()) {
+            sendText(chatId, "⚠️ Usa `/search <nome podcast>`");
+            return;
+        }
+
+        String query = parts[1].trim();
+        List<podcast> results = apiClient.searchPodcasts(query);
+        if (results.isEmpty()) {
+            sendText(chatId, "❌ Nessun risultato trovato.");
+        } else {
+            podcast p = results.get(0);
+            lastSearchMap.put(chatId, p);
+            sendPodcastPreview(chatId, p);
+        }
+    }
+
+    private void save(long chatId) {
+        podcast p = lastSearchMap.get(chatId);
+        if (p == null) {
+            sendText(chatId, "⚠️ Cerca prima un podcast!");
+            return;
+        }
+
+        if (dbManager.isFavoriteExists(chatId, p.getUuid())) {
+            sendText(chatId, "⚠️ Hai già salvato questo podcast!");
+            return;
+        }
+
+        dbManager.addFavorite(chatId, p.getUuid(), p.getName());
+        sendText(chatId, "✅ *" + p.getName() + "* salvato!");
+    }
+
     private void sendPodcastPreview(long chatId, podcast p) {
-        sendText(chatId, p.toString());
-        sendText(chatId, "Premi /next per il prossimo.");
+        String caption = p.toString() + "\n\n💡 _Scrivi /save per salvarlo_";
+        if (p.getImageUrl() != null && !p.getImageUrl().isEmpty()) {
+            try {
+                telegramClient.execute(SendPhoto.builder()
+                        .chatId(chatId)
+                        .photo(new InputFile(p.getImageUrl()))
+                        .caption(caption)
+                        .parseMode("Markdown")
+                        .build());
+            } catch (TelegramApiException e) {
+                sendText(chatId, caption);
+            }
+        } else {
+            sendText(chatId, caption);
+        }
     }
 
     private void sendText(long chatId, String text) {
-        SendMessage message = SendMessage.builder()
-                .chatId(chatId)
-                .text(text)
-                .parseMode("Markdown")
-                .build();
         try {
-            telegramClient.execute(message);
+            telegramClient.execute(SendMessage.builder()
+                    .chatId(chatId)
+                    .text(text)
+                    .parseMode("Markdown")
+                    .build());
         } catch (TelegramApiException e) {
             e.printStackTrace();
         }
