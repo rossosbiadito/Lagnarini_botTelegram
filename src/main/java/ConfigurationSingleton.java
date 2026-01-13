@@ -5,6 +5,7 @@ public class ConfigurationSingleton {
     private static ConfigurationSingleton instance;
     private Configuration config;
 
+    // Costruttore privato: carica il file config.properties una sola volta
     private ConfigurationSingleton() {
         Configurations configurations = new Configurations();
         try {
@@ -15,12 +16,14 @@ public class ConfigurationSingleton {
         }
     }
 
+    // Restituisce l'istanza unica del singleton
     public static ConfigurationSingleton getInstance() {
         if (instance == null)
             instance = new ConfigurationSingleton();
         return instance;
     }
 
+    // Legge il valore di una chiave dal file di configurazione
     public String getProperty(String key) {
         return config.getString(key);
     }

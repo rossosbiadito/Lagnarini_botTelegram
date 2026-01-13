@@ -18,11 +18,13 @@ public class TaddyApiClient {
     private String apiKey;
     private String userId;
 
+    // Costruttore con chiavi API
     public TaddyApiClient(String apiKey, String userId) {
         this.apiKey = apiKey;
         this.userId = userId;
     }
 
+    // Cerca podcast per nome o termine generico
     public List<podcast> searchPodcasts(String nameQuery) {
         String jsonResponse = searchPodcastRaw(nameQuery);
         if (jsonResponse == null) return new ArrayList<>();
@@ -30,6 +32,7 @@ public class TaddyApiClient {
         try {
             JsonObject root = JsonParser.parseString(jsonResponse).getAsJsonObject();
 
+            // Se la API restituisce errori, li stampiamo e ritorniamo lista vuota
             if (root.has("errors")) {
                 System.err.println("ERRORI API TADDY: " + root.getAsJsonArray("errors").toString());
                 return new ArrayList<>();
@@ -41,9 +44,12 @@ public class TaddyApiClient {
 
             List<podcast> results = new ArrayList<>();
 
+            // Se è un singolo podcast
             if (seriesElement != null && !seriesElement.isJsonNull()) {
                 results.add(parsePodcastFromObject(seriesElement.getAsJsonObject()));
-            } else if (searchElement != null && !searchElement.isJsonNull()) {
+            }
+            // Se è una lista di podcast (ricerca generica)
+            else if (searchElement != null && !searchElement.isJsonNull()) {
                 JsonArray searchArray = searchElement.getAsJsonArray();
                 for (JsonElement el : searchArray) {
                     results.add(parsePodcastFromObject(el.getAsJsonObject()));
@@ -53,17 +59,20 @@ public class TaddyApiClient {
             return results;
 
         } catch (Exception e) {
+            // Gestione errori parsing JSON
             System.err.println("Errore parsing JSON: " + e.getMessage());
             return new ArrayList<>();
         }
     }
 
+    // Prepara la query GraphQL in base al tipo di ricerca
     public String searchPodcastRaw(String nameQuery) {
         String queryType = nameQuery.contains(" ") ? "getPodcastSeries(name: \"" : "searchPodcasts(term: \"";
         String graphQuery = "{ " + queryType + nameQuery.replace("\"", "") + "\") { uuid name description imageUrl } }";
         return executeQuery(graphQuery);
     }
 
+    // Esegue la query POST verso l'API Taddy
     private String executeQuery(String query) {
         try {
             URL url = new URL("https://api.taddy.org");
@@ -77,10 +86,12 @@ public class TaddyApiClient {
             JsonObject jsonBody = new JsonObject();
             jsonBody.addProperty("query", query);
 
+            // Scrive il corpo della richiesta
             try (OutputStream os = conn.getOutputStream()) {
                 os.write(jsonBody.toString().getBytes(StandardCharsets.UTF_8));
             }
 
+            // Legge la risposta dall'API
             int responseCode = conn.getResponseCode();
             BufferedReader br = new BufferedReader(new InputStreamReader(
                     (responseCode >= 200 && responseCode < 300) ? conn.getInputStream() : conn.getErrorStream()
@@ -92,11 +103,13 @@ public class TaddyApiClient {
             br.close();
             return response.toString();
         } catch (Exception e) {
+            // Gestione errori connessione
             e.printStackTrace();
             return null;
         }
     }
 
+    // Converte un oggetto JSON in un oggetto podcast
     private podcast parsePodcastFromObject(JsonObject obj) {
         podcast p = new podcast();
         p.setUuid(obj.has("uuid") && !obj.get("uuid").isJsonNull() ? obj.get("uuid").getAsString() : "");
