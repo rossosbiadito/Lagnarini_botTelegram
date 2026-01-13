@@ -58,6 +58,10 @@ public class PodcastBot_lagnarini implements LongPollingSingleThreadUpdateConsum
                     sendText(chatId, dbManager.getGlobalStats());
                     break;
 
+                case "/history":
+                    sendText(chatId, dbManager.getLastSearches(chatId));
+                    break;
+
                 case "/myfavorites":
                     sendText(chatId, dbManager.getUserFavorites(chatId));
                     break;
@@ -71,7 +75,9 @@ public class PodcastBot_lagnarini implements LongPollingSingleThreadUpdateConsum
     private void start(long chatId, String username) {
         dbManager.registerUser(chatId, username != null ? username : "User");
         sendText(chatId, "🎙️ *Benvenuto! Digita un podcast e scopri se il mondo lo ama… o se sei solo tu a salvarlo. * " +
-                               "\n- Usa `/search <nome>` \n- Usa `/save` per i preferiti \n- Usa `/stats` per le tendenze \n- Usa `/myfavorites` per i tuoi salvati \n- Usa `/remove` per rimuovere i tuoi salvati");
+                               "\n- Usa `/search <nome>` \n- Usa `/save` per i preferiti \n- Usa `/stats` per le tendenze " +
+                                "\n- Usa `/history` per vedere le ultime ricerche"+"\n- Usa `/myfavorites` per i tuoi salvati \n- Usa `/remove` per rimuovere i tuoi salvati");
+
 
     }
 
@@ -84,6 +90,7 @@ public class PodcastBot_lagnarini implements LongPollingSingleThreadUpdateConsum
         }
 
         String query = parts[1].trim();          // rimuove spazi all'inizio/fine della query
+        dbManager.saveSearch(chatId, query);
         List<podcast> results = apiClient.searchPodcasts(query);
         if (results.isEmpty()) {
             sendText(chatId, "Nessun risultato trovato.");

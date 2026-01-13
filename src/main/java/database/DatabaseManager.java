@@ -18,6 +18,15 @@ public class DatabaseManager {
                     "uuid TEXT, " +
                     "name TEXT, " +
                     "FOREIGN KEY(chat_id) REFERENCES users(chat_id))");
+
+            // Tabella storico ricerche
+            stmt.execute("CREATE TABLE IF NOT EXISTS search_history (" +
+                    "id INTEGER PRIMARY KEY AUTOINCREMENT, " +
+                    "chat_id INTEGER, " +
+                    "query TEXT, " +
+                    "searched_at DATETIME DEFAULT CURRENT_TIMESTAMP, " +
+                    "FOREIGN KEY(chat_id) REFERENCES users(chat_id))");
+
         } catch (SQLException e) {
             e.printStackTrace();
         }
@@ -97,4 +106,39 @@ public class DatabaseManager {
             return data ? sb.toString() : "Non hai ancora salvato nulla.";
         } catch (SQLException e) { return "Errore recupero preferiti."; }
     }
+
+    public void saveSearch(long chatId, String query) {
+        String sql = "INSERT INTO search_history(chat_id, query) VALUES(?,?)";
+        try (Connection conn = DriverManager.getConnection(URL);
+             PreparedStatement pstmt = conn.prepareStatement(sql)) {
+            pstmt.setLong(1, chatId);
+            pstmt.setString(2, query);
+            pstmt.executeUpdate();
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+    }
+
+    public String getLastSearches(long chatId) {
+        String sql = "SELECT query FROM search_history " +
+                "WHERE chat_id = ? ORDER BY searched_at DESC LIMIT 5";
+
+        StringBuilder sb = new StringBuilder("🕒 *Ultime ricerche:* \n");
+        try (Connection conn = DriverManager.getConnection(URL);
+             PreparedStatement pstmt = conn.prepareStatement(sql)) {
+
+            pstmt.setLong(1, chatId);
+            ResultSet rs = pstmt.executeQuery();
+
+            boolean data = false;
+            while (rs.next()) {
+                data = true;
+                sb.append("- ").append(rs.getString("query")).append("\n");
+            }
+            return data ? sb.toString() : "Nessuna ricerca effettuata.";
+        } catch (SQLException e) {
+            return "Errore recupero ricerche.";
+        }
+    }
+
 }
